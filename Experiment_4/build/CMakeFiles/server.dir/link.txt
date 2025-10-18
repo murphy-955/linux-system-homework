@@ -1,0 +1,1 @@
+/usr/bin/g++-14  -Wall -Wextra -g CMakeFiles/server.dir/src/server.cpp.o -o "/home/cyy0316/projects/Bounty Board System/server" 

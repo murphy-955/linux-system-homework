@@ -1,0 +1,4 @@
+/home/cyy0316/projects/Bounty Board System/build/CMakeFiles/server.dir
+/home/cyy0316/projects/Bounty Board System/build/CMakeFiles/client.dir
+/home/cyy0316/projects/Bounty Board System/build/CMakeFiles/edit_cache.dir
+/home/cyy0316/projects/Bounty Board System/build/CMakeFiles/rebuild_cache.dir
