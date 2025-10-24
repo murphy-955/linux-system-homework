@@ -8,23 +8,37 @@
 #include <memory>
 #include "include/protocols/PIAP.h"
 #include "include/protocols/TITP.h"
+#include <sys/select.h>
+#include <sys/time.h>
+#include <unistd.h>
 
-// 替代 std::print 的简单实现
 template<typename... Args>
 void print(const std::string &format, Args... args) {
-    printf(format.c_str(), args...);
+    if (sizeof...(args) > 0) {
+        printf(format.c_str(), args...);
+    } else {
+        printf("%s", format.c_str());
+    }
 }
 
 template<typename... Args>
 void println(const std::string &format, Args... args) {
-    if constexpr (sizeof...(args) == 0) {
-        // 没有参数时直接输出字符串
-        std::cout << format << std::endl;
-    } else {
-        // 有参数时使用 printf 风格格式化
+    if (sizeof...(args) > 0) {
         printf(format.c_str(), args...);
-        printf("\n");
+    } else {
+        printf("%s", format.c_str());
     }
+    printf("\n");
+}
+
+// 封装发送控制包函数
+bool send_ctrl_packet(tcp_server &server, int client_fd, std::unique_ptr<piap_t> packet) {
+    return server.send_ctrl_packet(client_fd, packet);
+}
+
+// 封装发送数据包函数
+bool send_data_packet(tcp_server &server, int client_fd, std::unique_ptr<titp_t> packet) {
+    return server.send_data_packet(client_fd, packet);
 }
 
 // 简单的用户数据库模拟
@@ -42,21 +56,21 @@ std::unordered_map<uint64_t, std::pair<std::string, std::string>> task_database 
 };
 
 // 处理客户端认证请求
-void handle_authentication(tcp_server &server, int client_fd) {
+bool handle_authentication(tcp_server &server, int client_fd) {
     try {
         auto request = server.recv_ctrl_packet(client_fd);
         if (!request) {
             println("Error: Failed to receive authentication packet.");
-            return;
+            return false;
         }
 
         auto format_status = request->valid_format();
         if (format_status != piap_format_type_t::FORMAT_OK) {
             auto response = std::make_unique<piap_t>(piap_msg_type_t::LOGIN_RESPONSE);
             response->set_format_status(format_status);
-            server.send_ctrl_packet(client_fd, response);
+            send_ctrl_packet(server, client_fd, std::move(response));
             println("Authentication format error: %d", static_cast<int>(format_status));
-            return;
+            return false;
         }
 
         const char *username = request->get_userID();
@@ -77,78 +91,70 @@ void handle_authentication(tcp_server &server, int client_fd) {
         // 发送认证响应
         auto response = std::make_unique<piap_t>(piap_msg_type_t::LOGIN_RESPONSE);
         response->set_auth_status(auth_status);
-        server.send_ctrl_packet(client_fd, response);
+        send_ctrl_packet(server, client_fd, std::move(response));
 
         if (auth_status == piap_auth_type_t::LOGIN_SUCCESS) {
             println("User %s logged in successfully.", username);
+            return true;
         } else {
             println("Authentication failed for user %s", username);
+            return false;
         }
 
     } catch (const std::exception &e) {
         println("Exception during authentication: %s", e.what());
+        return false;
     }
 }
 
-// 处理客户端的任务请求
-void handle_task_request(tcp_server &server, int client_fd) {
-    try {
-        auto request = server.recv_data_packet(client_fd);
-        if (!request || request->get_msg_type() != titp_msg_type_t::RESOURCE_REQUEST) {
-            println("Error: Invalid task request.");
-            return;
-        }
-
-        uint64_t task_id = request->get_task_id();
-        auto response = std::make_unique<titp_t>(titp_msg_type_t::RESOURCE_SENT);
-
-        // 检查任务是否存在
-        if (task_database.find(task_id) != task_database.end()) {
-            auto &task_info = task_database[task_id];
-            response->set_task_id(task_id);
-            response->set_task_name(task_info.first.c_str());
-            response->set_task_description(task_info.second.c_str());
-            response->set_difficulty(task_difficulty_t::MEDIUM);
-            response->set_resource_status(titp_resource_status_type_t::RESOURCE_ACK);
-            response->set_msg_status(titp_format_type_t::FORMAT_OK);
-        } else {
-            response->set_resource_status(titp_resource_status_type_t::RESOURCE_NOT_FOUND);
-            response->set_msg_status(titp_format_type_t::FORMAT_OK);
-        }
-
-        server.send_data_packet(client_fd, response);
-        println("Handled task request for task ID %lu", task_id);
-
-    } catch (const std::exception &e) {
-        println("Exception during task handling: %s", e.what());
-    }
-}
+// 认证后处理客户端会话
+void handle_client_session(tcp_server &server, int client_fd);
 
 int main() {
     try {
         tcp_server server(PORT);
-        std::cout << std::string("Server Starts at: 0.0.0.0: ") + std::to_string(PORT) + std::string("\n");
+        std::cout << std::string("Server Starts at:") +  SERVER_TEST + std::to_string(PORT) + std::string("\n");
+        println("Type 'exit' or 'quit' to shutdown the server.");
+
+        fd_set readfds;
+        int max_fd = std::max(server.get_server_fd(), 0) + 1;
 
         while (server.is_active()) {
-            int client_fd = server.accept_connection();
-            if (client_fd < 0) {
-                // 继续等待下一个连接
-                continue;
+            FD_ZERO(&readfds);
+            FD_SET(server.get_server_fd(), &readfds);
+            FD_SET(0, &readfds);
+
+            int activity = select(max_fd, &readfds, nullptr, nullptr, nullptr);
+
+            if (activity < 0) {
+                println("Select error.");
+                break;
             }
 
-            println("Client connected with FD: %d", client_fd);
-
-            // 处理认证
-            handle_authentication(server, client_fd);
-
-            // 认证成功后处理任务请求
-            while (true) {
-                // 这里应该使用select/poll/epoll来处理多客户端，但为了简单起见使用循环
-                handle_task_request(server, client_fd);
+            if (FD_ISSET(0, &readfds)) {
+                std::string input;
+                std::getline(std::cin, input);
+                if (input == "exit" || input == "quit") {
+                    println("Shutting down server...");
+                    break;
+                }
             }
 
-            server.kick_client(client_fd);
-            println("Client %d disconnected.", client_fd);
+            if (FD_ISSET(server.get_server_fd(), &readfds)) {
+                int client_fd = server.accept_connection();
+                if (client_fd < 0) {
+                    continue;
+                }
+
+                println("Client connected with FD: %d", client_fd);
+
+                if (handle_authentication(server, client_fd)) {
+                    handle_client_session(server, client_fd);
+                }
+
+                server.kick_client(client_fd);
+                println("Client %d disconnected.", client_fd);
+            }
         }
 
         server.shutdown_server();
@@ -160,4 +166,51 @@ int main() {
     }
 
     return 0;
+}
+
+void handle_client_session(tcp_server &server, int client_fd) {
+    while (true) {
+        // 先尝试读控制包
+        auto ctrl_packet = server.recv_ctrl_packet(client_fd);
+        if (ctrl_packet) {
+            if (ctrl_packet->get_msg_type() == piap_msg_type_t::LOGOUT_REQUEST) {
+                println("Client %d logged out.", client_fd);
+                break;
+            }
+            continue;
+        }
+        
+        // 再尝试读数据包
+        auto data_packet = server.recv_data_packet(client_fd);
+        if (data_packet) {
+            if (data_packet->get_msg_type() == titp_msg_type_t::RESOURCE_REQUEST) {
+                // 处理任务请求（同之前的代码）
+                uint64_t task_id = data_packet->get_task_id();
+                auto response = std::make_unique<titp_t>(titp_msg_type_t::RESOURCE_SENT);
+                
+                if (task_database.find(task_id) != task_database.end()) {
+                    auto &task_info = task_database[task_id];
+                    response->set_task_id(task_id);
+                    response->set_task_name(task_info.first.c_str());
+                    response->set_task_description(task_info.second.c_str());
+                    response->set_difficulty(task_difficulty_t::MEDIUM);
+                    response->set_resource_status(titp_resource_status_type_t::RESOURCE_ACK);
+                    response->set_msg_status(titp_format_type_t::FORMAT_OK);
+                } else {
+                    response->set_resource_status(titp_resource_status_type_t::RESOURCE_NOT_FOUND);
+                    response->set_msg_status(titp_format_type_t::FORMAT_OK);
+                }
+                
+                send_data_packet(server, client_fd, std::move(response));
+                println("Handled task request for task ID %lu", task_id);
+            }
+            continue;
+        }
+        
+        // 两种包都没收到，连接断开
+        if (!ctrl_packet && !data_packet) {
+            println("Connection closed for client %d", client_fd);
+            break;
+        }
+    }
 }

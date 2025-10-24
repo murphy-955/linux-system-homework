@@ -6,7 +6,7 @@
 			[
 				{
 					"build" : ".",
-					"jsonFile" : "directory-.-f5ebdc15457944623624.json",
+					"jsonFile" : "directory-.-Debug-f5ebdc15457944623624.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.20"
@@ -20,7 +20,7 @@
 					]
 				}
 			],
-			"name" : "",
+			"name" : "Debug",
 			"projects" : 
 			[
 				{
@@ -41,14 +41,14 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "client::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-client-9b6baea06ee0234a0b48.json",
+					"jsonFile" : "target-client-Debug-cc624de3a007d6507660.json",
 					"name" : "client",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "server::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-server-69d81c4b9ae2e9962ff0.json",
+					"jsonFile" : "target-server-Debug-11ac8e022e06737fe385.json",
 					"name" : "server",
 					"projectIndex" : 0
 				}
@@ -58,8 +58,8 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "/home/cyy0316/projects/Bounty Board System/build",
-		"source" : "/home/cyy0316/projects/Bounty Board System"
+		"build" : "/home/cyy0316/projects/linux-system-homework/Experiment_4/build",
+		"source" : "/home/cyy0316/projects/linux-system-homework/Experiment_4"
 	},
 	"version" : 
 	{

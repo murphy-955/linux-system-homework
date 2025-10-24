@@ -2,11 +2,9 @@
 #include "include/network/tcp_client.h"
 #include <string>
 #include <iostream>
-#include <string>
 #include "include/protocols/PIAP.h"
 #include "include/protocols/TITP.h"
 
-// 替代 std::print 的简单实现
 template<typename... Args>
 void print(const std::string &format, Args... args) {
     if (sizeof...(args) > 0) {
@@ -24,6 +22,28 @@ void println(const std::string &format, Args... args) {
         printf("%s", format.c_str());
     }
     printf("\n");
+}
+
+// 封装发送控制包函数，带重试
+bool send_ctrl_packet_with_retry(tcp_client &client, std::unique_ptr<piap_t> packet) {
+    for (int i = 0; i < MAX_RETRIES; ++i) {
+        if (client.send_ctrl_packet(packet)) {
+            return true;
+        }
+        printf("Warning: Control packet retrying %d/%d...\n", i + 1, MAX_RETRIES);
+    }
+    return false;
+}
+
+// 封装发送数据包函数，带重试
+bool send_data_packet_with_retry(tcp_client &client, std::unique_ptr<titp_t> packet) {
+    for (int i = 0; i < MAX_RETRIES; ++i) {
+        if (client.send_data_packet(packet)) {
+            return true;
+        }
+        printf("Warning: Data packet retrying %d/%d...\n", i + 1, MAX_RETRIES);
+    }
+    return false;
 }
 
 void clear_screen() {
@@ -52,16 +72,7 @@ void request_task_detail(tcp_client &client) {
     request->set_task_id(task_id);
 
     // 发送请求
-    bool is_send = false;
-    for (auto i = 0; i < MAX_RETRIES; ++i) {
-        if (client.send_data_packet(request)) {
-            is_send = true;
-            break;
-        }
-        println("警告: 请求重试 {}/{}...", i + 1, MAX_RETRIES);
-    }
-
-    if (!is_send) {
+    if (!send_data_packet_with_retry(client, std::move(request))) {
         println("错误: 发送任务请求失败，请重试！");
         return;
     }
@@ -110,18 +121,9 @@ int main() {
             {
                 std::unique_ptr <piap_t> auth_pkt = std::make_unique<piap_t>(piap_msg_type_t::LOGIN_REQUEST);
                 auth_pkt->set_usr_info(acc.c_str(), pwd.c_str());
-                bool is_send = false;
 
-                for (auto i = 0; i < MAX_RETRIES; ++i) {
-                    if (client.send_ctrl_packet(auth_pkt)) {
-                        is_send = true;
-                        break;
-                    }
-                    println("Warning: Authorization retrying %d/%s...", i + 1, MAX_RETRIES);
-                }
-
-                if (!is_send) {
-                    println("Error: Failed to create the log in request, try again!");
+                if (!send_ctrl_packet_with_retry(client, std::move(auth_pkt))) {
+                    println("Error: Failed to send login request, try again!");
                     continue;
                 }
             }
@@ -182,16 +184,7 @@ int main() {
                     task_request->set_task_id(task_id);
 
                     // 发送任务请求
-                    bool sent = false;
-                    for (int i = 0; i < MAX_RETRIES; ++i) {
-                        if (client.send_data_packet(task_request)) {
-                            sent = true;
-                            break;
-                        }
-                        println("Warning: Task request retrying {}/{}", i + 1, MAX_RETRIES);
-                    }
-
-                    if (!sent) {
+                    if (!send_data_packet_with_retry(client, std::move(task_request))) {
                         println("Error: Failed to send task request.");
                         continue;
                     }
@@ -219,16 +212,16 @@ int main() {
 
                     // 显示任务信息
                     println("\n===== Task Details =====");
-                    println("ID: %s", task_response->get_task_id());
+                    println("ID: %llu", task_response->get_task_id());
                     println("Name: %s", task_response->get_task_name());
                     println("Description: %s", task_response->get_task_description());
-                    println("Difficulty: %s", static_cast<int>(task_response->get_difficulty()));
+                    println("Difficulty: %d", static_cast<int>(task_response->get_difficulty()));
                     println("========================");
 
                 } else if (choice == "2") {
                     // 退出登录
                     auto logout_packet = std::make_unique<piap_t>(piap_msg_type_t::LOGOUT_REQUEST);
-                    client.send_ctrl_packet(logout_packet);
+                    send_ctrl_packet_with_retry(client, std::move(logout_packet));
                     is_authorized = false;
                     println("You have been logged out.");
                 } else {

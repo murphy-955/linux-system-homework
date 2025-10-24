@@ -6,6 +6,9 @@
 #include <memory>
 #include <cstring>
 #include <ctime>
+#include <netinet/in.h>
+#include <endian.h>
+#include <vector>
 
 constexpr uint32_t TITP_MAGIC = 0x54495450;
 constexpr uint16_t TITP_VERSION = 0X0100;
@@ -139,29 +142,80 @@ public:
         return sizeof(titp_header_t) + header.payload_length;
     }
 
+    /**
+     * @brief Serialize the packet to network byte order for sending
+     * 
+     * @return std::vector<std::byte> Serialized data
+     */
+    std::vector<std::byte> serialize() const {
+        std::vector<std::byte> buffer(size());
+        titp_header_t net_header = header;
+        net_header.magic = htonl(header.magic);
+        net_header.version = htons(header.version);
+        net_header.msg_type = htons(header.msg_type);
+        net_header.payload_length = htonl(header.payload_length);
+        net_header.timestamp = htonl(header.timestamp);
+        net_header.reserved = htonl(header.reserved);
+
+        std::byte *ptr = buffer.data();
+        std::memcpy(ptr, &net_header, sizeof(titp_header_t));
+        ptr += sizeof(titp_header_t);
+
+        if (header.msg_type == static_cast<uint16_t>(titp_msg_type_t::RESOURCE_REQUEST)) {
+            titp_request_payload_t net_request = payload.request;
+            net_request.task_id = htobe64(payload.request.task_id);
+            std::memcpy(ptr, &net_request, sizeof(titp_request_payload_t));
+        } else if(header.msg_type == static_cast<uint16_t>(titp_msg_type_t::RESOURCE_SENT)) {
+            titp_response_payload_t net_response = payload.response;
+            net_response.metadata.task_id = htobe64(payload.response.metadata.task_id);
+            net_response.metadata.msg_status = htons(payload.response.metadata.msg_status);
+            net_response.metadata.resource_status = htons(payload.response.metadata.resource_status);
+            std::memcpy(ptr, &net_response, sizeof(titp_response_payload_t));
+        }
+
+        return buffer;
+    }
+
     static std::unique_ptr<titp_t> deserialize(const void *data, size_t len) {
 
         if (len < sizeof(titp_header_t)) return nullptr;
         
         const titp_header_t *h = static_cast<const titp_header_t*>(data);
         
-        if (h->magic != TITP_MAGIC || h->version != TITP_VERSION) return nullptr;
+        uint32_t magic = ntohl(h->magic);
+        uint16_t version = ntohs(h->version);
+        if (magic != TITP_MAGIC || version != TITP_VERSION) return nullptr;
         
-        auto msg_type = static_cast<titp_msg_type_t>(h->msg_type);
+        uint16_t msg_type_net = ntohs(h->msg_type);
+        auto msg_type = static_cast<titp_msg_type_t>(msg_type_net);
         
-        if (len < sizeof(titp_header_t) + h->payload_length) {
+        uint32_t payload_length = ntohl(h->payload_length);
+        if (len < sizeof(titp_header_t) + payload_length) {
             return nullptr;
         }
 
         auto packet = std::make_unique<titp_t>(msg_type);
-        std::memcpy(&packet->header, h, sizeof(titp_header_t));
+        packet->header.magic = magic;
+        packet->header.version = version;
+        packet->header.msg_type = msg_type_net;
+        packet->header.payload_length = payload_length;
+        packet->header.timestamp = ntohl(h->timestamp);
+        packet->header.reserved = ntohl(h->reserved);
         const std::byte *payload_ptr = static_cast<const std::byte*>(data) + sizeof(titp_header_t);
         
         if (msg_type == titp_msg_type_t::RESOURCE_REQUEST) {
-            std::memcpy(&packet->payload.request, payload_ptr, sizeof(titp_request_payload_t));
+            titp_request_payload_t req;
+            std::memcpy(&req, payload_ptr, sizeof(titp_request_payload_t));
+            req.task_id = be64toh(req.task_id);
+            packet->payload.request = req;
         } 
         else {
-            std::memcpy(&packet->payload.response, payload_ptr, sizeof(titp_response_payload_t));
+            titp_response_payload_t resp;
+            std::memcpy(&resp, payload_ptr, sizeof(titp_response_payload_t));
+            resp.metadata.task_id = be64toh(resp.metadata.task_id);
+            resp.metadata.msg_status = ntohs(resp.metadata.msg_status);
+            resp.metadata.resource_status = ntohs(resp.metadata.resource_status);
+            packet->payload.response = resp;
         }
         
         return packet;

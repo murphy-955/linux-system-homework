@@ -89,8 +89,9 @@ class tcp_client{
                                    std::string(" have not connected server yet."));
             }
 
-            size_t packet_size = packet->size();
-            const void *buf = packet->data();
+            auto buffer = packet->serialize();
+            size_t packet_size = buffer.size();
+            const void *buf = buffer.data();
 
             ssize_t sent_size;
             do {
@@ -131,13 +132,13 @@ class tcp_client{
                                    std::string(" have not connected server yet."));
             }
 
-            size_t packet_size = packet->size();
-            std::vector <std::byte> buffer(packet_size);
-            packet->data(buffer.data());
+            auto buffer = packet->serialize();
+            size_t packet_size = buffer.size();
+            const void *buf = buffer.data();
 
             ssize_t sent_size;
             do {
-                sent_size = send(client_fd, buffer.data(), packet_size, 0);
+                sent_size = send(client_fd, buf, packet_size, 0);
             } while (sent_size < 0 && errno == EINTR);
 
             if (sent_size < 0 || sent_size != static_cast<ssize_t>(packet_size)) return false;
@@ -161,17 +162,20 @@ class tcp_client{
             // 将缓冲区转换为 titp_header_t 指针
             titp_header_t *header = reinterpret_cast<titp_header_t * >(header_buffer);
 
-            // 验证魔数和版本
-            if (header->magic != TITP_MAGIC || header->version != TITP_VERSION) return nullptr;
+            // 验证魔数和版本 (convert from network byte order)
+            uint32_t magic = ntohl(header->magic);
+            uint16_t version = ntohs(header->version);
+            if (magic != TITP_MAGIC || version != TITP_VERSION) return nullptr;
 
             // 分配完整消息的缓冲区
-            size_t total_size = sizeof(titp_header_t) + header->payload_length;
+            uint32_t payload_length = ntohl(header->payload_length);
+            size_t total_size = sizeof(titp_header_t) + payload_length;
             std::vector <std::byte> buffer(total_size);
             std::memcpy(buffer.data(), header_buffer, sizeof(titp_header_t));
 
             // 接收剩余的负载数据
-            recv_size = recv(client_fd, buffer.data() + sizeof(titp_header_t), header->payload_length, MSG_WAITALL);
-            if (recv_size <= 0 || recv_size != static_cast<ssize_t>(header->payload_length)) return nullptr;
+            recv_size = recv(client_fd, buffer.data() + sizeof(titp_header_t), payload_length, MSG_WAITALL);
+            if (recv_size <= 0 || recv_size != static_cast<ssize_t>(payload_length)) return nullptr;
 
             // 反序列化消息
             auto packet = titp_t::deserialize(buffer.data(), buffer.size());

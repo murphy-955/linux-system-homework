@@ -90,8 +90,9 @@ class tcp_server{
                 std::runtime_error("Error: Server is not running or invalid client file descriptor.");
             }
 
-            size_t packet_size = packet->size();
-            const void *buf = packet->data();
+            auto buffer = packet->serialize();
+            size_t packet_size = buffer.size();
+            const void *buf = buffer.data();
 
             ssize_t sent_size;
             do {
@@ -104,22 +105,28 @@ class tcp_server{
         }
 
         std::unique_ptr<piap_t> recv_ctrl_packet(int client_fd) const {
-            if (!is_running || client_fd < 0) {
-                throw
-                std::runtime_error("Error: Server is not running or invalid client file descriptor.");
+            // 先 peek magic number
+            uint32_t magic_buf;
+            ssize_t peek_size = recv(client_fd, &magic_buf, sizeof(uint32_t), MSG_PEEK);
+            
+            if (peek_size != sizeof(uint32_t)) {
+                return nullptr;
             }
-
+            
+            uint32_t magic = ntohl(magic_buf);
+            if (magic != PIAP_MAGIC) {
+                return nullptr;  // 不是 PIAP 包，不消费数据
+            }
+            
+            // 确认是 PIAP 包后再读取
             std::vector<std::byte> buf(PIAP_TOTAL_SIZE);
             ssize_t recv_size = recv(client_fd, buf.data(), PIAP_TOTAL_SIZE, MSG_WAITALL);
-
-            if (recv_size <= 0 || recv_size != static_cast<ssize_t>(PIAP_TOTAL_SIZE)) return nullptr;
-
-            auto packet = piap_t::deserialize(buf.data(), buf.size());
-            if (!packet) {
-                throw
-                std::runtime_error("Error: Failed to deserialize packet!");
+            
+            if (recv_size != static_cast<ssize_t>(PIAP_TOTAL_SIZE)) {
+                return nullptr;
             }
-            return packet;
+            
+            return piap_t::deserialize(buf.data(), buf.size());
         }
 
         bool send_data_packet(int client_fd, const std::unique_ptr<titp_t>& packet) const {
@@ -128,13 +135,13 @@ class tcp_server{
                 std::runtime_error("Error: Server is not running or invalid client file descriptor.");
             }
 
-            size_t packet_size = packet->size();
-            std::vector<std::byte> buffer(packet_size);
-            packet->data(buffer.data());
+            auto buffer = packet->serialize();
+            size_t packet_size = buffer.size();
+            const void *buf = buffer.data();
 
             ssize_t sent_size;
             do {
-                sent_size = send(client_fd, buffer.data(), packet_size, 0);
+                sent_size = send(client_fd, buf, packet_size, 0);
             } while (sent_size < 0 && errno == EINTR);
 
             if (sent_size < 0 || sent_size != static_cast<ssize_t>(packet_size)) return false;
@@ -143,37 +150,44 @@ class tcp_server{
         }
 
         std::unique_ptr<titp_t> recv_data_packet(int client_fd) const {
-            if (!is_running || client_fd < 0) {
-                throw
-                std::runtime_error("Error: Server is not running or invalid client file descriptor.");
+            // 先 peek magic number
+            uint32_t magic_buf;
+            ssize_t peek_size = recv(client_fd, &magic_buf, sizeof(uint32_t), MSG_PEEK);
+            
+            if (peek_size != sizeof(uint32_t)) {
+                return nullptr;
             }
-
-            // 先接收消息头以确定消息大小
+            
+            uint32_t magic = ntohl(magic_buf);
+            if (magic != TITP_MAGIC) {
+                return nullptr;  // 不是 TITP 包，不消费数据
+            }
+            
+            // 确认是 TITP 包后再读取
             char header_buffer[sizeof(titp_header_t)];
             ssize_t recv_size = recv(client_fd, header_buffer, sizeof(titp_header_t), MSG_WAITALL);
-
-            if (recv_size <= 0 || recv_size != static_cast<ssize_t>(sizeof(titp_header_t))) return nullptr;
-
-            // 将缓冲区转换为 titp_header_t 指针
+            
+            if (recv_size != sizeof(titp_header_t)) {
+                return nullptr;
+            }
+            
             titp_header_t* header = reinterpret_cast<titp_header_t*>(header_buffer);
-
-            // 验证魔数和版本
-            if (header->magic != TITP_MAGIC || header->version != TITP_VERSION) return nullptr;
-
-            // 分配完整消息的缓冲区
-            size_t total_size = sizeof(titp_header_t) + header->payload_length;
+            uint32_t payload_length = ntohl(header->payload_length);
+            
+            size_t total_size = sizeof(titp_header_t) + payload_length;
             std::vector<std::byte> buffer(total_size);
             std::memcpy(buffer.data(), header_buffer, sizeof(titp_header_t));
-
-            // 接收剩余的负载数据
-            recv_size = recv(client_fd, buffer.data() + sizeof(titp_header_t), header->payload_length, MSG_WAITALL);
-            if (recv_size <= 0 || recv_size != static_cast<ssize_t>(header->payload_length)) return nullptr;
-
-            // 反序列化消息
-            auto packet = titp_t::deserialize(buffer.data(), buffer.size());
-            return packet;
+            
+            recv_size = recv(client_fd, buffer.data() + sizeof(titp_header_t), 
+                            payload_length, MSG_WAITALL);
+            
+            if (recv_size != static_cast<ssize_t>(payload_length)) {
+                return nullptr;
+            }
+            
+            return titp_t::deserialize(buffer.data(), buffer.size());
         }
-
+        
         /**
          * @brief 从信道中监听并获取到服务器的 client_fd 以建立 TCP 连接。
          *

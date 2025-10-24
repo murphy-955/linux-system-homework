@@ -4,6 +4,8 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <netinet/in.h>  // For ntohl, ntohs
+#include <vector>
 
 // 此文件是自定义 BSTP 的连接控制部分，协议叫做：玩家身份认证协议 (Player Identity Authorization Protocol, 简称 PIAP)
 
@@ -58,7 +60,7 @@ constexpr uint16_t PIAP_VERSION = 0x0100;
 // TTL 应当由客户端与服务器约定，目前设置 TTL 为一分钟，保证连接不会被拦截并盗取信息。
 constexpr unsigned int PIAP_TTL = 60;
 
-constexpr size_t PIAP_TOTAL_SIZE = 532;
+constexpr size_t PIAP_TOTAL_SIZE = 536;
 
 struct piap_header_t {
     uint32_t magic;
@@ -125,19 +127,59 @@ public:
         return sizeof(piap_header_t) + sizeof(piap_payload_t);
     }
 
+    /**
+     * @brief Serialize the packet to network byte order for sending
+     * 
+     * @return std::vector<std::byte> Serialized data in network byte order
+     */
+    std::vector<std::byte> serialize() const {
+        std::vector<std::byte> buffer(size());
+        piap_header_t net_header(0, 0, 0);  // Dummy values, will overwrite
+        net_header.magic = htonl(header.magic);
+        net_header.version = htons(header.version);
+        net_header.msg_type = htons(header.msg_type);
+        net_header.payload_length = htonl(header.payload_length);
+        net_header.timestamp = htonl(header.timestamp);
+        net_header.reserved = htonl(header.reserved);
+
+        std::memcpy(buffer.data(), &net_header, sizeof(piap_header_t));
+
+        // Copy payload, but convert uint16_t fields
+        piap_payload_t net_payload = payload;
+        net_payload.msg_status = htons(payload.msg_status);
+        net_payload.auth_status = htons(payload.auth_status);
+
+        std::memcpy(buffer.data() + sizeof(piap_header_t), &net_payload, sizeof(piap_payload_t));
+
+        return buffer;
+    }
+
     static std::unique_ptr<piap_t> deserialize(const void *data, size_t len) {
         if(len < sizeof(piap_header_t) + sizeof(piap_payload_t)) return nullptr;
 
         const piap_header_t *h = static_cast<const piap_header_t*>(data);
-        if(h->magic != PIAP_MAGIC || h->version != PIAP_VERSION) return nullptr;
+        // Convert from network byte order to host byte order
+        uint32_t magic = ntohl(h->magic);
+        uint16_t version = ntohs(h->version);
+        if(magic != PIAP_MAGIC || version != PIAP_VERSION) return nullptr;
 
-        auto packet = std::make_unique<piap_t>(static_cast<piap_msg_type_t>(h->msg_type));
+        auto packet = std::make_unique<piap_t>(static_cast<piap_msg_type_t>(ntohs(h->msg_type)));
 
-        std::memcpy(&packet->header, h, sizeof(piap_header_t));
+        // Copy header with byte order conversion
+        packet->header.magic = magic;
+        packet->header.version = version;
+        packet->header.msg_type = ntohs(h->msg_type);
+        packet->header.payload_length = ntohl(h->payload_length);
+        packet->header.timestamp = ntohl(h->timestamp);
+        packet->header.reserved = ntohl(h->reserved);
 
         // 因为内存连续，因此如果要得到载荷的部分就应该加上对应的长度才可以访问到实际的内存。
         const std::byte *payload_bytes = static_cast<const std::byte*>(data) + sizeof(piap_header_t);
         std::memcpy(&packet->payload, payload_bytes, sizeof(piap_payload_t));
+
+        // Convert payload fields from network byte order
+        packet->payload.msg_status = ntohs(packet->payload.msg_status);
+        packet->payload.auth_status = ntohs(packet->payload.auth_status);
 
         return packet;
     }
