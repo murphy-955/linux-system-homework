@@ -1,4 +1,4 @@
-# Install script for directory: /home/cyy0316/projects/Bounty Board System
+# Install script for directory: /home/ubuntu22/文档/LinuxSystem/Experiment_4
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/cyy0316/projects/Bounty Board System/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/ubuntu22/文档/LinuxSystem/Experiment_4/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

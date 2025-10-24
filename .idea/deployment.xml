@@ -5,7 +5,7 @@
       <paths name="VmLocalCentos">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/user1/LinuxSystem" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/ubuntu22/文档/LinuxSystem" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

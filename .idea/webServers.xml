@@ -3,7 +3,7 @@
   <component name="WebServers">
     <option name="servers">
       <webServer id="696bb241-98c5-471c-8e88-c1b4cf1592b1" name="VmLocalCentos">
-        <fileTransfer accessType="SFTP" host="192.168.88.180" port="22" sshConfigId="a09eb725-b11e-4e90-87b6-e2973aa023a1" sshConfig="root@192.168.88.180:22 password">
+        <fileTransfer accessType="SFTP" host="192.168.194.129" port="22" sshConfigId="a09eb725-b11e-4e90-87b6-e2973aa023a1" sshConfig="ubuntu22@192.168.194.129:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

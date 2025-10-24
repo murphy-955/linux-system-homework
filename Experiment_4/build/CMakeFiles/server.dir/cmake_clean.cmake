@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/cyy0316/projects/Bounty Board System/server"
-  "/home/cyy0316/projects/Bounty Board System/server.pdb"
+  "../server"
+  "../server.pdb"
   "CMakeFiles/server.dir/src/server.cpp.o"
   "CMakeFiles/server.dir/src/server.cpp.o.d"
 )

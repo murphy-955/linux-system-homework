@@ -1,1 +1,1 @@
-/usr/bin/g++-14  -Wall -Wextra -g CMakeFiles/client.dir/src/client.cpp.o -o "/home/cyy0316/projects/Bounty Board System/client" 
+/usr/bin/c++  -Wall -Wextra -g CMakeFiles/client.dir/src/client.cpp.o -o ../client 
